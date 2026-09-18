@@ -33,9 +33,56 @@
     errorSummary.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  const aiForm = document.querySelector("[data-ai-form]");
+  if (aiForm) {
+    aiForm.addEventListener("submit", () => {
+      const button = aiForm.querySelector("[data-ai-submit]");
+      if (button) {
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        button.textContent = "Analyzing…";
+      }
+    });
+  }
+
   const deleteForm = document.querySelector("[data-delete-form]");
   if (deleteForm) {
+    const referenceInput = deleteForm.querySelector("[data-delete-reference]");
+    const referenceFeedback = deleteForm.querySelector("[data-reference-match]");
+    const normaliseReference = (value) =>
+      String(value || "")
+        .normalize("NFKC")
+        .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+        .replace(/[\s\u200B-\u200D\u2060\uFEFF]+/g, "")
+        .toUpperCase();
+    const expectedReference = normaliseReference(deleteForm.dataset.referenceCode);
+    const referenceMatches = () =>
+      Boolean(referenceInput?.value) &&
+      normaliseReference(referenceInput.value) === expectedReference;
+    const updateReferenceFeedback = () => {
+      if (!referenceInput) return false;
+      const matches = referenceMatches();
+      const hasValue = Boolean(referenceInput.value.trim());
+      referenceInput.setCustomValidity(
+        hasValue && !matches ? "Enter the reference code shown above." : "",
+      );
+      if (referenceFeedback) {
+        referenceFeedback.textContent = matches
+          ? "Reference code matched."
+          : "Spaces, letter case, and copied dash variants are accepted.";
+        referenceFeedback.classList.toggle("reference-match-success", matches);
+      }
+      return matches;
+    };
+    referenceInput?.addEventListener("input", updateReferenceFeedback);
+
     deleteForm.addEventListener("submit", (event) => {
+      if (!updateReferenceFeedback()) {
+        event.preventDefault();
+        referenceInput?.reportValidity();
+        referenceInput?.focus();
+        return;
+      }
       if (!window.confirm("Permanently delete this application, its AI analyses, and resume?")) {
         event.preventDefault();
         return;

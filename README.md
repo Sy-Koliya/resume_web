@@ -124,11 +124,17 @@ sudo python3 -m json.tool /etc/bite-hunt/deepseek.json >/dev/null
 sudo systemctl restart bite-hunt-careers
 ```
 
-The adapter sends `response_format: {"type": "json_object"}` through the OpenAI-compatible chat-completions endpoint. Resume content is treated as untrusted input, protected-trait scoring is forbidden in the system prompt, and the server validates and bounds every saved result. To support another provider or protocol later, add a provider branch in `app/ai.py`; analysis, storage, and rendering are already separated from provider configuration.
+The adapter sends `response_format: {"type": "json_object"}` through the OpenAI-compatible chat-completions endpoint and explicitly disables thinking mode for this structured task. If DeepSeek returns the documented occasional empty JSON response, the application retries once with a stricter prompt. Resume content is treated as untrusted input, protected-trait scoring is forbidden in the system prompt, and the server validates and bounds every saved result. To support another provider or protocol later, add a provider branch in `app/ai.py`; analysis, storage, and rendering are already separated from provider configuration.
+
+When an analysis fails, the hiring desk now distinguishes invalid credentials, insufficient balance, rate limits, provider errors, timeouts, and server connectivity failures. It includes a short provider message when safe, but never displays the configured API key. Check the service log for the corresponding server-side event:
+
+```bash
+sudo journalctl -u bite-hunt-careers -n 100 --no-pager
+```
 
 ### Delete an application
 
-Open the application in the hiring desk, go to **Danger zone**, and type its full reference code. Deletion removes the application row, all linked AI analyses, and the stored resume. This action is permanent and cannot be undone; take a backup first when retention policy requires one.
+Open the application in the hiring desk, go to **Danger zone**, and type its full reference code. The browser shows when the code matches; pasted whitespace, letter case, full-width characters, and common Unicode dash variants are normalized by both the browser and server. Deletion removes the application row, all linked AI analyses, and the stored resume. This action is permanent and cannot be undone; take a backup first when retention policy requires one.
 
 ## Administrator password
 
@@ -142,6 +148,14 @@ sudo systemctl restart bite-hunt-careers
 ```
 
 ## Operations
+
+Update an existing Git checkout and deploy the new code while preserving the current configuration, database, resumes, and DeepSeek key:
+
+```bash
+cd /path/to/resume_web
+git pull --ff-only origin main
+sudo bash scripts/install_ubuntu.sh
+```
 
 Service status and logs:
 

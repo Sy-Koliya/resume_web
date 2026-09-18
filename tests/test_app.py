@@ -8,11 +8,12 @@ import sqlite3
 import zipfile
 from pathlib import Path
 
+import httpx
 import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 
-from app.ai import _normalise_evaluation, evaluate_resume
+from app.ai import EvaluationFailed, _normalise_evaluation, evaluate_resume
 from app.auth import hash_password, verify_password
 from app.config import load_settings
 from app.database import Database, SCHEMA, SCHEMA_VERSION
@@ -248,8 +249,8 @@ def test_ai_scorecard_is_normalised_and_weighted():
         {
             "summary": "Strong ranking experience with one production detail to verify.",
             "dimension_scores": {
-                "role_requirements": {"score": 90, "rationale": "Matches core work."},
-                "relevant_experience": {"score": 80, "rationale": "Relevant projects."},
+                "role_requirements": {"score": "90", "rationale": "Matches core work."},
+                "relevant_experience": {"score": 80.0, "rationale": "Relevant projects."},
                 "skills_and_tools": {"score": 70, "rationale": "Most tools are present."},
                 "evidence_of_impact": {"score": 60, "rationale": "Some metrics are missing."},
             },
@@ -355,8 +356,110 @@ def test_deepseek_openai_compatible_request(tmp_path: Path, monkeypatch):
     assert captured["path"] == "/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer test-deepseek-key"
     assert captured["payload"]["model"] == "deepseek-v4-pro"
+    assert captured["payload"]["thinking"] == {"type": "disabled"}
     assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert captured["payload"]["stream"] is False
     assert result["score"] == 84
+
+
+def test_deepseek_retries_empty_json_response_once(tmp_path: Path, monkeypatch):
+    settings = load_settings(make_config(tmp_path, ai_enabled=True))
+    resume_path = tmp_path / "resume.docx"
+    document = Document()
+    document.add_paragraph("Maintained campus menu data in a shared spreadsheet.")
+    document.save(resume_path)
+    attempts = 0
+    raw_result = {
+        "summary": "Relevant field data experience.",
+        "dimension_scores": {
+            "role_requirements": {"score": 80, "rationale": "Relevant collection work."},
+            "relevant_experience": {"score": 70, "rationale": "Some direct experience."},
+            "skills_and_tools": {"score": 75, "rationale": "Spreadsheet skill is shown."},
+            "evidence_of_impact": {"score": 60, "rationale": "Impact needs verification."},
+        },
+    }
+    encoded_result = json.dumps(raw_result)
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, path, *, headers, json):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return FakeResponse("")
+            return FakeResponse([{"type": "text", "text": encoded_result}])
+
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeAsyncClient)
+    result = asyncio.run(
+        evaluate_resume(
+            settings.ai,
+            {"position": "Campus Cafeteria Data Collector", "cover_note": ""},
+            resume_path,
+            {"tasks": ["Collect menu data."], "skills": "Spreadsheet skills."},
+        )
+    )
+
+    assert attempts == 2
+    assert result["score"] == 73
+    assert result["strengths"] == []
+    assert result["gaps"] == []
+
+
+def test_deepseek_request_error_includes_safe_provider_detail(tmp_path: Path, monkeypatch):
+    settings = load_settings(make_config(tmp_path, ai_enabled=True))
+    resume_path = tmp_path / "resume.docx"
+    document = Document()
+    document.add_paragraph("Built a ranking service in Python.")
+    document.save(resume_path)
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, path, *, headers, json):
+            request = httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+            return httpx.Response(
+                400,
+                request=request,
+                json={"error": {"message": "Model is not available for this account."}},
+            )
+
+    monkeypatch.setattr("app.ai.httpx.AsyncClient", FakeAsyncClient)
+    with pytest.raises(EvaluationFailed, match="Model is not available"):
+        asyncio.run(
+            evaluate_resume(
+                settings.ai,
+                {"position": "AI Search & Recommendation Engineer", "cover_note": ""},
+                resume_path,
+                {"tasks": ["Build search."], "skills": "Python."},
+            )
+        )
 
 
 def test_ai_evaluation_route_stores_and_renders_scorecard(tmp_path: Path, monkeypatch):
@@ -443,11 +546,22 @@ def test_delete_application_removes_record_evaluations_and_resume(client: TestCl
     assert database.get_application(application["id"]) is not None
     assert resume_path.is_file()
 
+    unicode_rejected = client.post(
+        f"/admin/applications/{application['id']}/delete",
+        data={"csrf_token": token, "confirm_reference": "错误代码"},
+        follow_redirects=False,
+    )
+    assert unicode_rejected.status_code == 303
+    assert database.get_application(application["id"]) is not None
+
+    accepted_variant = (
+        f" \u200b{application['reference_code'].lower().replace('-', '－')} "
+    )
     deleted = client.post(
         f"/admin/applications/{application['id']}/delete",
         data={
             "csrf_token": token,
-            "confirm_reference": application["reference_code"],
+            "confirm_reference": accepted_variant,
         },
         follow_redirects=False,
     )

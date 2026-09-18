@@ -41,12 +41,12 @@
       <section class="detail-card ai-card">
         <div class="card-heading">
           <div><p class="section-label">Decision support</p><h2>AI evaluation</h2></div>
-          <form action="/admin/applications/{{ application.id }}/evaluate" method="post">
+          <form action="/admin/applications/{{ application.id }}/evaluate" method="post" data-ai-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button button-ai" type="submit" {% if not ai_ready %}disabled{% endif %}>{% if evaluations %}Run analysis again{% else %}Analyze match{% endif %}</button>
+            <button class="button button-ai" type="submit" data-ai-submit {% if not ai_ready %}disabled{% endif %}>{% if evaluations %}Run analysis again{% else %}Analyze match{% endif %}</button>
           </form>
         </div>
-        <p class="ai-disclosure">Analysis runs only when you click the button. Resume text and this role profile are sent to the configured DeepSeek OpenAI-compatible API. Scores are decision support and must be checked by a person.</p>
+        <p class="ai-disclosure">Analysis runs only when you click the button. It can take up to two minutes; keep this page open. Resume text and this role profile are sent to the configured DeepSeek OpenAI-compatible API. Scores are decision support and must be checked by a person.</p>
         {% if not ai_enabled %}<div class="configuration-note">AI analysis is disabled. Set <code>ai.enabled</code> to <code>true</code> in the main configuration.</div>
         {% elif not ai_ready %}<div class="configuration-note">DeepSeek is not ready. Add <code>api_key</code> to <code>{{ ai_config_path }}</code>, then restart the service.</div>{% endif %}
         {% if evaluations %}
@@ -138,11 +138,12 @@
         <p class="section-label">Danger zone</p>
         <h2>Delete application</h2>
         <p>This permanently removes the application, saved AI analyses, and resume file. It cannot be undone.</p>
-        <form action="/admin/applications/{{ application.id }}/delete" method="post" data-delete-form>
+        <form action="/admin/applications/{{ application.id }}/delete" method="post" data-delete-form data-reference-code="{{ application.reference_code }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="field">
             <label for="confirm_reference">Type <strong>{{ application.reference_code }}</strong> to confirm</label>
-            <input id="confirm_reference" name="confirm_reference" type="text" required autocomplete="off" spellcheck="false">
+            <input id="confirm_reference" name="confirm_reference" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="{{ application.reference_code }}" aria-describedby="reference-match-help" data-delete-reference>
+            <p id="reference-match-help" class="field-help reference-match" aria-live="polite" data-reference-match>Spaces, letter case, and copied dash variants are accepted.</p>
           </div>
           <button class="button button-danger button-full" type="submit">Permanently delete</button>
         </form>

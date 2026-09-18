@@ -8,6 +8,7 @@ import re
 import shutil
 import threading
 import time
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,6 +84,21 @@ STATUS_LABELS = {
 
 LOGGER = logging.getLogger(__name__)
 
+REFERENCE_DASHES = str.maketrans(
+    {
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2015": "-",
+        "\u2212": "-",
+        "\ufe58": "-",
+        "\ufe63": "-",
+        "\uff0d": "-",
+    }
+)
+
 
 class FixedWindowLimiter:
     def __init__(self, limit: int, window_seconds: int):
@@ -143,6 +159,13 @@ def _display_time(value: str) -> str:
         return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     except (TypeError, ValueError):
         return value
+
+
+def _normalise_reference_code(value: str) -> str:
+    """Make manually typed or pasted reference codes comparable."""
+    normalised = unicodedata.normalize("NFKC", value).translate(REFERENCE_DASHES)
+    normalised = re.sub(r"[\s\u200b-\u200d\u2060\ufeff]+", "", normalised)
+    return normalised.upper()
 
 
 def _move_resume_to_trash(
@@ -587,8 +610,10 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             )
             _set_flash(request, "success", "AI evaluation completed. Review it as decision support only.")
         except EvaluationUnavailable as exc:
+            LOGGER.warning("AI evaluation unavailable for %s: %s", application_id, exc)
             _set_flash(request, "warning", str(exc))
         except EvaluationFailed as exc:
+            LOGGER.warning("AI evaluation failed for %s: %s", application_id, exc)
             _set_flash(request, "error", str(exc))
         except FileNotFoundError:
             _set_flash(request, "error", "The stored resume file could not be found.")
@@ -608,11 +633,15 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         application = database.get_application(application_id)
         if not application:
             return _error_page(request, 404, "Application not found", "This application does not exist.")
-        if confirm_reference.strip() != application["reference_code"]:
+        supplied_reference = _normalise_reference_code(confirm_reference)
+        expected_reference = _normalise_reference_code(application["reference_code"])
+        if not hmac.compare_digest(
+            supplied_reference.encode("utf-8"), expected_reference.encode("utf-8")
+        ):
             _set_flash(
                 request,
                 "error",
-                "Reference code did not match. The application was not deleted.",
+                "Reference code did not match. Copy the code shown in the delete section and try again; nothing was deleted.",
             )
             return RedirectResponse(f"/admin/applications/{application_id}", status_code=303)
 

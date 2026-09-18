@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -13,11 +14,18 @@ from pypdf import PdfReader
 from .config import AISettings
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 class EvaluationUnavailable(RuntimeError):
     pass
 
 
 class EvaluationFailed(RuntimeError):
+    pass
+
+
+class _EmptyModelResponse(RuntimeError):
     pass
 
 
@@ -82,14 +90,24 @@ def extract_resume_text(path: Path, limit: int) -> str:
 
 
 def _parse_json_content(content: str) -> dict[str, Any]:
-    cleaned = content.strip()
+    cleaned = content.strip().lstrip("\ufeff")
     fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", cleaned, flags=re.DOTALL)
     if fence:
         cleaned = fence.group(1)
     try:
         result = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise EvaluationFailed("The model returned an invalid evaluation format.") from exc
+        # JSON mode should return only an object, but tolerate a short textual prefix
+        # or suffix produced by an otherwise valid OpenAI-compatible provider.
+        object_start = cleaned.find("{")
+        if object_start < 0:
+            raise EvaluationFailed("The model returned an invalid evaluation format.") from exc
+        try:
+            result, _ = json.JSONDecoder().raw_decode(cleaned[object_start:])
+        except json.JSONDecodeError as nested_exc:
+            raise EvaluationFailed(
+                "The model returned an invalid evaluation format."
+            ) from nested_exc
     if not isinstance(result, dict):
         raise EvaluationFailed("The model returned an invalid evaluation format.")
     return result
@@ -107,12 +125,20 @@ def _text(value: Any, *, field: str, limit: int, required: bool = False) -> str:
 
 
 def _score(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+    if isinstance(value, bool):
+        raise EvaluationFailed(f"The model returned an invalid {field} score.")
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]{1,3}", value.strip()):
+        value = int(value.strip())
+    if not isinstance(value, int) or not 0 <= value <= 100:
         raise EvaluationFailed(f"The model returned an invalid {field} score.")
     return value
 
 
 def _string_list(value: Any, field: str, *, maximum: int = 8) -> list[str]:
+    if value is None:
+        return []
     if not isinstance(value, list):
         raise EvaluationFailed(f"The model returned an invalid {field} field.")
     result: list[str] = []
@@ -241,16 +267,87 @@ def _normalise_evaluation(value: dict[str, Any]) -> dict[str, Any]:
             value.get("summary"), field="summary", limit=2_000, required=True
         ),
         "dimension_scores": dimensions,
-        "strengths": _string_list(value.get("strengths"), "strengths"),
-        "gaps": _string_list(value.get("gaps"), "gaps"),
+        "strengths": _string_list(value.get("strengths", []), "strengths"),
+        "gaps": _string_list(value.get("gaps", []), "gaps"),
         # Keep this alias so evaluations remain compatible with the original UI/data shape.
-        "concerns": _string_list(value.get("gaps"), "gaps"),
+        "concerns": _string_list(value.get("gaps", []), "gaps"),
         "evidence": evidence,
         "interview_questions": questions,
         "limitations": _string_list(
             value.get("limitations", []), "limitations", maximum=5
         ),
     }
+
+
+def _response_content(data: Any) -> str:
+    if not isinstance(data, dict):
+        raise EvaluationFailed("The DeepSeek API returned an invalid response object.")
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise EvaluationFailed("The DeepSeek API response did not contain a completion.")
+
+    choice = choices[0]
+    finish_reason = choice.get("finish_reason")
+    if finish_reason == "length":
+        raise EvaluationFailed(
+            "The DeepSeek response was cut off. Increase max_output_tokens in the AI configuration and try again."
+        )
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise EvaluationFailed("The DeepSeek API response did not contain a message.")
+
+    content = message.get("content")
+    if isinstance(content, str):
+        rendered = content.strip()
+    elif isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+        rendered = "".join(parts).strip()
+    else:
+        rendered = ""
+
+    if not rendered:
+        raise _EmptyModelResponse
+    return rendered
+
+
+def _api_error_detail(response: httpx.Response, api_key: str) -> str:
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    error = data.get("error")
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return ""
+    detail = re.sub(r"\s+", " ", message).strip()
+    if api_key:
+        detail = detail.replace(api_key, "[redacted]")
+    return detail[:300]
+
+
+def _http_failure_message(response: httpx.Response, api_key: str) -> str:
+    status_code = response.status_code
+    detail = _api_error_detail(response, api_key)
+    if status_code in {401, 403}:
+        message = "The DeepSeek API rejected the configured API key."
+    elif status_code == 402:
+        message = "The DeepSeek account has insufficient balance for this request."
+    elif status_code == 429:
+        message = "The DeepSeek API rate limit or account quota was reached."
+    elif status_code in {500, 502, 503, 504}:
+        message = f"The DeepSeek API is temporarily unavailable (HTTP {status_code})."
+    else:
+        message = f"The DeepSeek API rejected the request (HTTP {status_code})."
+    if detail and status_code not in {401, 403}:
+        message = f"{message} Provider message: {detail}"
+    return message
 
 
 async def evaluate_resume(
@@ -321,11 +418,16 @@ async def evaluate_resume(
         "temperature": 0.1,
         "max_tokens": settings.max_output_tokens,
         "response_format": {"type": "json_object"},
+        "stream": False,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
     }
+    if settings.provider == "deepseek":
+        # DeepSeek currently enables thinking by default. This compact structured
+        # classification task is more reliable and faster in non-thinking mode.
+        payload["thinking"] = {"type": "disabled"}
 
     try:
         async with httpx.AsyncClient(
@@ -333,31 +435,53 @@ async def evaluate_resume(
             timeout=settings.timeout_seconds,
             follow_redirects=False,
         ) as client:
-            response = await client.post(
-                settings.endpoint_path,
-                headers={
-                    "Authorization": f"Bearer {settings.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
+            content = ""
+            for attempt in range(2):
+                response = await client.post(
+                    settings.endpoint_path,
+                    headers={
+                        "Authorization": f"Bearer {settings.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+                try:
+                    content = _response_content(data)
+                    break
+                except _EmptyModelResponse:
+                    if attempt == 0:
+                        LOGGER.warning(
+                            "DeepSeek returned empty content; retrying evaluation once"
+                        )
+                        payload["messages"][-1]["content"] += (
+                            "\nThe previous response was empty. Return the complete non-empty "
+                            "JSON object now."
+                        )
+                        continue
+                    raise EvaluationFailed(
+                        "DeepSeek returned an empty analysis twice. Please try again later."
+                    )
     except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
-        if status_code in {401, 403}:
-            message = "The DeepSeek API rejected the configured API key."
-        elif status_code == 429:
-            message = "The DeepSeek API rate limit or account quota was reached."
-        else:
-            message = f"The DeepSeek API returned HTTP {status_code}."
-        raise EvaluationFailed(message) from exc
+        raise EvaluationFailed(
+            _http_failure_message(exc.response, settings.api_key)
+        ) from exc
     except httpx.TimeoutException as exc:
-        raise EvaluationFailed("The DeepSeek API request timed out.") from exc
-    except (httpx.HTTPError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise EvaluationFailed(
+            "The DeepSeek API request timed out. Try again, or increase ai.timeout_seconds in the main configuration."
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise EvaluationFailed(
+            "The server could not connect to DeepSeek. Check DNS and outbound HTTPS access to api.deepseek.com."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise EvaluationFailed(
+            "The connection to DeepSeek failed before a complete response was received."
+        ) from exc
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise EvaluationFailed(
             "The configured AI service did not return a usable evaluation."
         ) from exc
 
-    return _normalise_evaluation(_parse_json_content(str(content)))
+    return _normalise_evaluation(_parse_json_content(content))
