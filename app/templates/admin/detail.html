@@ -1,0 +1,89 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ application.full_name }}{% endblock %}
+{% block content %}
+  <a class="back-link admin-back" href="/admin">&larr; All applications</a>
+  <div class="detail-title-row">
+    <div>
+      <p class="section-label">{{ application.reference_code }}</p>
+      <h1>{{ application.full_name }}</h1>
+      <p>{{ application.position }}</p>
+    </div>
+    <span class="status status-{{ application.status }} status-large">{{ status_labels[application.status] }}</span>
+  </div>
+
+  <div class="detail-grid">
+    <div class="detail-primary">
+      <section class="detail-card">
+        <div class="card-heading"><h2>Candidate</h2><span>Received {{ application.created_at|display_time }}</span></div>
+        <dl class="candidate-details">
+          <div><dt>Email</dt><dd><a href="mailto:{{ application.email }}">{{ application.email }}</a></dd></div>
+          <div><dt>Phone</dt><dd>{{ application.phone or 'Not provided' }}</dd></div>
+          <div><dt>Role</dt><dd>{{ application.position }}</dd></div>
+        </dl>
+        <div class="candidate-note">
+          <h3>Candidate note</h3>
+          <p>{{ application.cover_note or 'No note was included.' }}</p>
+        </div>
+      </section>
+
+      <section class="detail-card resume-card">
+        <div>
+          <p class="section-label">Resume</p>
+          <h2>{{ application.resume_original_name }}</h2>
+          <p>{{ application.resume_size|human_bytes }} - SHA-256 {{ application.resume_sha256[:16] }}…</p>
+        </div>
+        <a class="button button-secondary" href="/admin/applications/{{ application.id }}/resume">Download resume</a>
+      </section>
+
+      <section class="detail-card ai-card">
+        <div class="card-heading">
+          <div><p class="section-label">Decision support</p><h2>AI evaluation</h2></div>
+          <form action="/admin/applications/{{ application.id }}/evaluate" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button button-ai" type="submit" {% if not ai_enabled %}disabled{% endif %}>Evaluate resume</button>
+          </form>
+        </div>
+        <p class="ai-disclosure">Evaluation runs only when you click the button. Resume text is then sent to the API configured by your administrator. Treat every result as assistance, not a hiring decision.</p>
+        {% if not ai_enabled %}<div class="configuration-note">AI evaluation is currently disabled. Enable it in <code>/etc/bite-hunt/config.json</code> when you are ready.</div>{% endif %}
+        {% if evaluations %}
+        <div class="evaluation-list">
+          {% for evaluation in evaluations %}
+          <article class="evaluation">
+            <div class="evaluation-score"><strong>{{ evaluation.result.get('score', '-') }}</strong><span>/ 100</span></div>
+            <div class="evaluation-content">
+              <div class="evaluation-meta"><span>{{ evaluation.result.get('recommendation', 'Needs review')|replace('_', ' ')|title }}</span><small>{{ evaluation.model }} - {{ evaluation.created_at|display_time }}</small></div>
+              <p>{{ evaluation.result.get('summary', 'No summary returned.') }}</p>
+              <div class="evaluation-columns">
+                <div><h3>Strengths</h3><ul>{% for item in evaluation.result.get('strengths', []) %}<li>{{ item }}</li>{% else %}<li>None returned.</li>{% endfor %}</ul></div>
+                <div><h3>Concerns to verify</h3><ul>{% for item in evaluation.result.get('concerns', []) %}<li>{{ item }}</li>{% else %}<li>None returned.</li>{% endfor %}</ul></div>
+              </div>
+              {% if evaluation.result.get('interview_questions') %}<div class="interview-questions"><h3>Suggested questions</h3><ol>{% for item in evaluation.result.interview_questions %}<li>{{ item }}</li>{% endfor %}</ol></div>{% endif %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+    </div>
+
+    <aside class="detail-sidebar">
+      <form class="detail-card review-form" action="/admin/applications/{{ application.id }}/update" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <p class="section-label">Internal review</p>
+        <h2>Move this application</h2>
+        <div class="field">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            {% for value in statuses %}<option value="{{ value }}" {% if application.status == value %}selected{% endif %}>{{ status_labels[value] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="admin_notes">Private notes</label>
+          <textarea id="admin_notes" name="admin_notes" rows="10" maxlength="10000" placeholder="Interview notes, follow-up items, or context for the team…">{{ application.admin_notes }}</textarea>
+        </div>
+        <button class="button button-primary button-full" type="submit">Save changes</button>
+        <p class="field-help">These notes are visible only in the hiring desk.</p>
+      </form>
+    </aside>
+  </div>
+{% endblock %}

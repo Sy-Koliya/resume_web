@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Team login - Bite Hunt</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body class="login-page">
+  <div class="login-panel">
+    <a class="brand brand-light" href="/"><span class="brand-mark">B</span><span>Bite Hunt</span></a>
+    <div class="login-copy">
+      <p class="section-label section-label-light">Private hiring desk</p>
+      <h1>Review every application in one place.</h1>
+      <p>Candidate files are never served from a public folder.</p>
+    </div>
+  </div>
+  <main class="login-main">
+    <form class="login-card" action="/admin/login" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <p class="section-label">Team login</p>
+      <h2>Welcome back.</h2>
+      {% if error %}<div class="form-errors compact" role="alert">{{ error }}</div>{% endif %}
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="button button-primary button-full" type="submit">Sign in</button>
+      <a class="back-link" href="/">&larr; Return to careers</a>
+    </form>
+  </main>
+</body>
+</html>
