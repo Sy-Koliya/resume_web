@@ -6,6 +6,8 @@ __pycache__/
 htmlcov/
 .DS_Store
 config/config.local.json
+config/deepseek.json
+config/deepseek.local.json
 var/
 dist/
 .sites-runtime/

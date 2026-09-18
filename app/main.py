@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import math
+import os
 import re
 import shutil
 import threading
@@ -79,6 +81,8 @@ STATUS_LABELS = {
     "archived": "Archived",
 }
 
+LOGGER = logging.getLogger(__name__)
+
 
 class FixedWindowLimiter:
     def __init__(self, limit: int, window_seconds: int):
@@ -139,6 +143,40 @@ def _display_time(value: str) -> str:
         return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     except (TypeError, ValueError):
         return value
+
+
+def _move_resume_to_trash(
+    resume_root: Path, relative_path: str
+) -> tuple[Path, Path] | None:
+    try:
+        original_path = resolve_stored_resume(resume_root, relative_path)
+    except FileNotFoundError:
+        return None
+    trash_dir = resume_root.resolve() / ".trash" / uuid.uuid4().hex
+    trash_dir.mkdir(parents=True, exist_ok=False)
+    trashed_path = trash_dir / original_path.name
+    os.replace(original_path, trashed_path)
+    return original_path, trashed_path
+
+
+def _restore_trashed_resume(moved: tuple[Path, Path] | None) -> None:
+    if not moved:
+        return
+    original_path, trashed_path = moved
+    original_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(trashed_path, original_path)
+    shutil.rmtree(trashed_path.parent, ignore_errors=True)
+
+
+def _remove_empty_parents(path: Path, stop: Path) -> None:
+    current = path.parent
+    stop = stop.resolve()
+    while current != stop:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
 
 
 TEMPLATES.env.filters["human_bytes"] = _human_bytes
@@ -458,6 +496,8 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
                 application=application,
                 evaluations=evaluations,
                 ai_enabled=settings.ai.enabled,
+                ai_ready=settings.ai.ready,
+                ai_config_path=str(settings.ai.config_path),
             ),
         )
 
@@ -467,6 +507,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         application_id: str,
         status: str = Form(...),
         admin_notes: str = Form(""),
+        review_score: str = Form(""),
         csrf_token: str = Form(...),
     ):
         if not _is_admin(request, settings):
@@ -477,7 +518,20 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             return _error_page(request, 400, "Unknown status", "Choose a valid application status.")
         if len(admin_notes) > 10_000:
             return _error_page(request, 400, "Notes too long", "Notes must be 10,000 characters or fewer.")
-        if not database.update_application(application_id, status, admin_notes.strip()):
+        score: int | None = None
+        if review_score.strip():
+            if not re.fullmatch(r"[0-9]{1,3}", review_score.strip()):
+                return _error_page(
+                    request, 400, "Invalid score", "Team score must be a whole number from 0 to 100."
+                )
+            score = int(review_score)
+            if not 0 <= score <= 100:
+                return _error_page(
+                    request, 400, "Invalid score", "Team score must be between 0 and 100."
+                )
+        if not database.update_application(
+            application_id, status, admin_notes.strip(), score
+        ):
             return _error_page(request, 404, "Application not found", "This application does not exist.")
         _set_flash(request, "success", "Application updated.")
         return RedirectResponse(f"/admin/applications/{application_id}", status_code=303)
@@ -519,7 +573,15 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             path = resolve_stored_resume(
                 settings.storage.resume_dir, application["resume_stored_path"]
             )
-            result = await evaluate_resume(settings.ai, application, path)
+            result = await evaluate_resume(
+                settings.ai,
+                application,
+                path,
+                ROLES.get(
+                    application["position"],
+                    {"tasks": [], "skills": "No structured role profile is available."},
+                ),
+            )
             database.add_ai_evaluation(
                 application_id, settings.ai.provider, settings.ai.model, result
             )
@@ -531,6 +593,82 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         except FileNotFoundError:
             _set_flash(request, "error", "The stored resume file could not be found.")
         return RedirectResponse(f"/admin/applications/{application_id}", status_code=303)
+
+    @app.post("/admin/applications/{application_id}/delete")
+    async def admin_application_delete(
+        request: Request,
+        application_id: str,
+        confirm_reference: str = Form(...),
+        csrf_token: str = Form(...),
+    ):
+        if not _is_admin(request, settings):
+            return RedirectResponse("/admin/login", status_code=303)
+        if not csrf_matches(request.session.get("csrf"), csrf_token):
+            return _error_page(request, 403, "Form expired", "Please refresh the page and try again.")
+        application = database.get_application(application_id)
+        if not application:
+            return _error_page(request, 404, "Application not found", "This application does not exist.")
+        if confirm_reference.strip() != application["reference_code"]:
+            _set_flash(
+                request,
+                "error",
+                "Reference code did not match. The application was not deleted.",
+            )
+            return RedirectResponse(f"/admin/applications/{application_id}", status_code=303)
+
+        moved_resume: tuple[Path, Path] | None = None
+        try:
+            moved_resume = _move_resume_to_trash(
+                settings.storage.resume_dir, application["resume_stored_path"]
+            )
+        except OSError:
+            LOGGER.exception("Unable to quarantine resume before deleting application %s", application_id)
+            _set_flash(
+                request,
+                "error",
+                "The resume file could not be secured for deletion. Nothing was deleted.",
+            )
+            return RedirectResponse(f"/admin/applications/{application_id}", status_code=303)
+
+        try:
+            deleted = database.delete_application(application_id)
+        except Exception:
+            _restore_trashed_resume(moved_resume)
+            raise
+        if not deleted:
+            _restore_trashed_resume(moved_resume)
+            return _error_page(request, 404, "Application not found", "This application does not exist.")
+
+        purge_failed = False
+        if moved_resume:
+            original_path, trashed_path = moved_resume
+            try:
+                shutil.rmtree(trashed_path.parent)
+                _remove_empty_parents(original_path, settings.storage.resume_dir)
+                try:
+                    (settings.storage.resume_dir.resolve() / ".trash").rmdir()
+                except OSError:
+                    pass
+            except OSError:
+                purge_failed = True
+                LOGGER.exception(
+                    "Application %s was deleted but its quarantined resume could not be purged",
+                    application_id,
+                )
+
+        if purge_failed:
+            _set_flash(
+                request,
+                "warning",
+                "Application data was deleted, but the quarantined resume needs manual cleanup from the private .trash directory.",
+            )
+        else:
+            _set_flash(
+                request,
+                "success",
+                f"Application {application['reference_code']}, its AI evaluations, and resume were permanently deleted.",
+            )
+        return RedirectResponse("/admin", status_code=303)
 
     @app.get("/health")
     async def health():

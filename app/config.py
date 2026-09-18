@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 class ConfigError(RuntimeError):
@@ -46,12 +47,18 @@ class SecuritySettings:
 class AISettings:
     enabled: bool
     provider: str
+    config_path: Path
     base_url: str
     endpoint_path: str
-    api_key_env: str
+    api_key: str = field(repr=False)
     model: str
     timeout_seconds: int
     max_resume_characters: int
+    max_output_tokens: int
+
+    @property
+    def ready(self) -> bool:
+        return self.enabled and bool(self.api_key and self.model)
 
 
 @dataclass(frozen=True)
@@ -95,6 +102,25 @@ def _resolve_path(raw: str, config_dir: Path) -> Path:
     if not path.is_absolute():
         path = config_dir / path
     return path.resolve()
+
+
+def _read_json_object(path: Path, description: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"Unable to read {description} at {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ConfigError(f"{description.capitalize()} must contain a JSON object: {path}")
+    return value
+
+
+def _string_value(
+    mapping: dict[str, Any], key: str, fallback: Any, description: str
+) -> str:
+    value = mapping.get(key, fallback)
+    if not isinstance(value, str):
+        raise ConfigError(f"{description}.{key} must be a string")
+    return value
 
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
@@ -141,9 +167,51 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     if not extensions or not set(extensions).issubset(supported):
         raise ConfigError("storage.allowed_extensions may only contain pdf, doc, and docx")
 
-    endpoint_path = str(ai.get("endpoint_path", "/chat/completions"))
-    if not endpoint_path.startswith("/"):
-        raise ConfigError("ai.endpoint_path must start with /")
+    ai_config_path = _resolve_path(
+        str(ai.get("config_path", "deepseek.json")), config_dir
+    )
+    provider_config: dict[str, Any] = {}
+    if ai_config_path.exists():
+        if not ai_config_path.is_file():
+            raise ConfigError(f"AI configuration path is not a file: {ai_config_path}")
+        provider_config = _read_json_object(ai_config_path, "AI configuration")
+
+    endpoint_path = _string_value(
+        provider_config,
+        "endpoint_path",
+        ai.get("endpoint_path", "/chat/completions"),
+        "AI configuration",
+    )
+    if (
+        not endpoint_path.startswith("/")
+        or endpoint_path.startswith("//")
+        or "?" in endpoint_path
+        or "#" in endpoint_path
+    ):
+        raise ConfigError("ai.endpoint_path must be one absolute URL path")
+
+    api_key = _string_value(
+        provider_config, "api_key", "", "AI configuration"
+    ).strip()
+    if not api_key:
+        # Backward compatibility for installations configured before deepseek.json.
+        api_key_env = str(ai.get("api_key_env", "BITE_HUNT_AI_API_KEY"))
+        api_key = os.environ.get(api_key_env, "").strip()
+
+    ai_base_url = _string_value(
+        provider_config,
+        "base_url",
+        ai.get("base_url", "https://api.deepseek.com"),
+        "AI configuration",
+    ).rstrip("/")
+    parsed_ai_url = urlparse(ai_base_url)
+    if (
+        parsed_ai_url.scheme not in {"http", "https"}
+        or not parsed_ai_url.netloc
+        or parsed_ai_url.username
+        or parsed_ai_url.password
+    ):
+        raise ConfigError("AI base_url must be an HTTP(S) URL without credentials")
 
     return Settings(
         app=AppSettings(
@@ -178,14 +246,32 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         ),
         ai=AISettings(
             enabled=bool(ai.get("enabled", False)),
-            provider=str(ai.get("provider", "openai_compatible")),
-            base_url=str(ai.get("base_url", "https://api.openai.com/v1")).rstrip("/"),
+            provider=_string_value(
+                provider_config,
+                "provider",
+                ai.get("provider", "deepseek"),
+                "AI configuration",
+            ),
+            config_path=ai_config_path,
+            base_url=ai_base_url,
             endpoint_path=endpoint_path,
-            api_key_env=str(ai.get("api_key_env", "BITE_HUNT_AI_API_KEY")),
-            model=str(ai.get("model", "")),
+            api_key=api_key,
+            model=_string_value(
+                provider_config,
+                "model",
+                ai.get("model", "deepseek-v4-pro"),
+                "AI configuration",
+            ),
             timeout_seconds=max(5, min(180, int(ai.get("timeout_seconds", 60)))),
             max_resume_characters=max(
                 2_000, min(100_000, int(ai.get("max_resume_characters", 30_000)))
+            ),
+            max_output_tokens=max(
+                1_000,
+                min(
+                    32_000,
+                    int(provider_config.get("max_output_tokens", 6_000)),
+                ),
             ),
         ),
         config_path=selected,

@@ -1,6 +1,6 @@
 # Bite Hunt Careers
 
-Bite Hunt Careers is a self-hosted recruitment site for Ubuntu 22.04 and newer. Candidates can read the company brief and open roles, upload a resume, and receive a reference code. A private hiring desk lets the team search applications, download resumes, update pipeline status, keep internal notes, and optionally request an AI-assisted evaluation.
+Bite Hunt Careers is a self-hosted recruitment site for Ubuntu 22.04 and newer. Candidates can read the company brief and open roles, upload a resume, and receive a reference code. A private hiring desk lets the team search applications, download resumes, update pipeline status, keep internal notes and scores, request a DeepSeek-assisted role match analysis, and permanently delete an application when it is no longer needed.
 
 The visual system follows the supplied Bite Hunt poster: editorial off-white surfaces, deep campus green, and a restrained orange action color. The public site and hiring desk are responsive and use no external fonts, trackers, CDNs, or browser-side data stores.
 
@@ -9,10 +9,12 @@ The visual system follows the supplied Bite Hunt poster: editorial off-white sur
 - Public company, mission, values, and open-role pages
 - Resume application form for PDF, DOC, and DOCX files
 - Private administrator login with signed, HTTP-only session cookies
-- Search, role/status filters, pipeline status, and private notes
+- Search, role/status filters, pipeline status, private notes, and a 0-100 team score
 - Protected resume downloads; the upload directory is never public
 - SQLite metadata and Linux filesystem document storage
-- Optional OpenAI-compatible evaluation adapter, disabled by default
+- DeepSeek `deepseek-v4-pro` analysis through its OpenAI-compatible chat-completions API
+- Weighted role-match scoring, strengths, gaps, resume evidence, and scored interview prompts
+- Confirmed deletion of application metadata, AI history, and the private resume file
 - Nginx on port 80, Uvicorn application service on `127.0.0.1:8000`
 - `systemd` service hardening, rate limits, CSRF protection, upload validation, and security headers
 - Interactive and non-interactive Ubuntu installation
@@ -30,7 +32,7 @@ flowchart TD
     W -. explicit admin action .-> M[Configured AI API]
 ```
 
-The database stores searchable metadata and workflow state. Resume bytes live below `/var/lib/bite-hunt/uploads`; only authenticated application code can read them. An AI request is never automatic: the administrator must enable the adapter and click **Evaluate resume** for one application.
+The database stores searchable metadata and workflow state. Resume bytes live below `/var/lib/bite-hunt/uploads`; only authenticated application code can read them. An AI request is never automatic: an administrator must click **Analyze match** for one application. The total AI score is calculated in application code from four model-scored dimensions: role requirements (35%), relevant experience (25%), skills and tools (25%), and evidence of impact (15%). It remains decision support, not an automated hiring decision.
 
 ## One-command Ubuntu deployment
 
@@ -40,13 +42,13 @@ Copy the project archive to a clean Ubuntu 22.04+ server, extract it, enter the 
 sudo bash scripts/install_ubuntu.sh
 ```
 
-The installer asks for an administrator username and a password of at least 12 characters. It then:
+The installer asks for an administrator username, a password of at least 12 characters, and an optional DeepSeek API key. It then:
 
 1. installs Python, Nginx, SQLite, and required runtime packages;
 2. creates an unprivileged `bitehunt` service account;
 3. installs the application below `/opt/bite-hunt-careers`;
 4. creates private data directories below `/var/lib/bite-hunt`;
-5. writes `/etc/bite-hunt/config.json` and the secret environment file;
+5. writes `/etc/bite-hunt/config.json`, `/etc/bite-hunt/deepseek.json`, and the optional service environment file;
 6. enables the application and Nginx services; and
 7. checks the local health endpoint.
 
@@ -61,12 +63,13 @@ For automated provisioning:
 sudo env \
   BITEHUNT_ADMIN_USERNAME=admin \
   BITEHUNT_ADMIN_PASSWORD='replace-with-a-long-password' \
+  BITEHUNT_DEEPSEEK_API_KEY='replace-with-your-deepseek-key' \
   BITEHUNT_SERVER_NAME=example.com \
   BITEHUNT_BASE_URL=http://example.com \
   bash scripts/install_ubuntu.sh
 ```
 
-`BITEHUNT_SERVER_NAME` accepts one hostname, IP address, or `_`. Re-running the installer installs a new code release and preserves the current configuration and data. Set `BITEHUNT_RECONFIGURE=1` only when you intentionally want a new configuration and administrator password; the previous config is backed up first.
+`BITEHUNT_SERVER_NAME` accepts one hostname, IP address, or `_`. Re-running the installer installs a new code release and preserves the current configuration, DeepSeek key, database, and resumes. Set `BITEHUNT_RECONFIGURE=1` only when you intentionally want a new main configuration and administrator password. Set `BITEHUNT_RECONFIGURE_AI=1` only when you intentionally want to replace the DeepSeek configuration. Existing files are backed up first.
 
 ## Configuration
 
@@ -90,45 +93,42 @@ Important settings:
 | `storage` | `allowed_extensions` | Any subset of `pdf`, `doc`, and `docx` |
 | `security` | `application_limit_per_hour` | Per-process submission throttle |
 | `security` | `login_limit_per_15_minutes` | Per-process login throttle |
-| `ai` | `enabled` | Master switch for AI evaluation |
-| `ai` | `base_url` / `endpoint_path` | OpenAI-compatible chat-completions endpoint |
-| `ai` | `api_key_env` | Name of the environment variable holding the API key |
-| `ai` | `model` | Model identifier sent to the provider |
+| `ai` | `enabled` | Master switch for AI analysis |
+| `ai` | `config_path` | Private provider configuration; production default is `/etc/bite-hunt/deepseek.json` |
+| `ai` | `timeout_seconds` | Maximum wait for one analysis request |
+| `ai` | `max_resume_characters` | Resume text limit sent to the model |
 
-Secrets referenced by the JSON file belong in `/etc/bite-hunt/bite-hunt.env`, which is readable only by root and the service group.
+The DeepSeek API key is kept in `/etc/bite-hunt/deepseek.json`, which the installer makes readable only by root and the `bitehunt` service group. The key is never sent to the browser or written to application logs.
 
-### Enable AI evaluation later
+### Configure DeepSeek
 
-Edit `/etc/bite-hunt/config.json`:
+The installer creates `/etc/bite-hunt/deepseek.json` even when you leave the key blank. Add the key from the [DeepSeek API keys page](https://platform.deepseek.com/api_keys):
 
 ```json
-"ai": {
-  "enabled": true,
-  "provider": "openai_compatible",
-  "base_url": "https://api.openai.com/v1",
+{
+  "provider": "deepseek",
+  "base_url": "https://api.deepseek.com",
   "endpoint_path": "/chat/completions",
-  "api_key_env": "BITE_HUNT_AI_API_KEY",
-  "model": "your-model-name",
-  "timeout_seconds": 60,
-  "max_resume_characters": 30000
+  "api_key": "your-deepseek-api-key",
+  "model": "deepseek-v4-pro",
+  "max_output_tokens": 6000
 }
-```
-
-Then put the secret in `/etc/bite-hunt/bite-hunt.env`:
-
-```bash
-BITE_HUNT_AI_API_KEY=your-secret-key
 ```
 
 Apply permissions and restart:
 
 ```bash
-sudo chown root:bitehunt /etc/bite-hunt/bite-hunt.env
-sudo chmod 0640 /etc/bite-hunt/bite-hunt.env
+sudo chown root:bitehunt /etc/bite-hunt/deepseek.json
+sudo chmod 0640 /etc/bite-hunt/deepseek.json
+sudo python3 -m json.tool /etc/bite-hunt/deepseek.json >/dev/null
 sudo systemctl restart bite-hunt-careers
 ```
 
-The built-in adapter uses the chat-completions request shape. To support another provider or a different protocol, add a provider branch in `app/ai.py`; the route, explicit-consent interaction, result storage, and admin rendering are already separated from the adapter.
+The adapter sends `response_format: {"type": "json_object"}` through the OpenAI-compatible chat-completions endpoint. Resume content is treated as untrusted input, protected-trait scoring is forbidden in the system prompt, and the server validates and bounds every saved result. To support another provider or protocol later, add a provider branch in `app/ai.py`; analysis, storage, and rendering are already separated from provider configuration.
+
+### Delete an application
+
+Open the application in the hiring desk, go to **Danger zone**, and type its full reference code. Deletion removes the application row, all linked AI analyses, and the stored resume. This action is permanent and cannot be undone; take a backup first when retention policy requires one.
 
 ## Administrator password
 
@@ -177,6 +177,8 @@ python scripts/render_config.py \
   --data-dir var \
   --base-url http://127.0.0.1:8000 \
   --trusted-host 127.0.0.1
+# Optional for local AI analysis; add api_key to this ignored file.
+cp config/deepseek.example.json config/deepseek.json
 BITE_HUNT_CONFIG=config/config.local.json \
   uvicorn app.main:create_app --factory --reload
 ```

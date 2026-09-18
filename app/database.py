@@ -17,6 +17,8 @@ APPLICATION_STATUSES = (
     "archived",
 )
 
+SCHEMA_VERSION = 2
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS applications (
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS applications (
     status TEXT NOT NULL DEFAULT 'new'
         CHECK (status IN ('new', 'reviewing', 'interview', 'offer', 'rejected', 'archived')),
     admin_notes TEXT NOT NULL DEFAULT '',
+    review_score INTEGER
+        CHECK (review_score IS NULL OR (review_score >= 0 AND review_score <= 100)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -61,8 +65,6 @@ ON applications(position, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_ai_evaluations_application_created
 ON ai_evaluations(application_id, created_at DESC);
-
-PRAGMA user_version = 1;
 """
 
 
@@ -77,7 +79,26 @@ class Database:
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Database schema version {version} is newer than supported version "
+                    f"{SCHEMA_VERSION}."
+                )
             connection.executescript(SCHEMA)
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(applications)").fetchall()
+            }
+            if "review_score" not in columns:
+                connection.execute(
+                    """
+                    ALTER TABLE applications
+                    ADD COLUMN review_score INTEGER
+                    CHECK (review_score IS NULL OR (review_score >= 0 AND review_score <= 100))
+                    """
+                )
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.execute("PRAGMA optimize")
 
     @contextmanager
@@ -163,17 +184,32 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
-    def update_application(self, application_id: str, status: str, notes: str) -> bool:
+    def update_application(
+        self,
+        application_id: str,
+        status: str,
+        notes: str,
+        review_score: int | None,
+    ) -> bool:
         if status not in APPLICATION_STATUSES:
             raise ValueError("Unknown application status")
+        if review_score is not None and not 0 <= review_score <= 100:
+            raise ValueError("Review score must be between 0 and 100")
         with self.connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE applications
-                SET status = ?, admin_notes = ?, updated_at = ?
+                SET status = ?, admin_notes = ?, review_score = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (status, notes, utc_now(), application_id),
+                (status, notes, review_score, utc_now(), application_id),
+            )
+        return cursor.rowcount == 1
+
+    def delete_application(self, application_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM applications WHERE id = ?", (application_id,)
             )
         return cursor.rowcount == 1
 

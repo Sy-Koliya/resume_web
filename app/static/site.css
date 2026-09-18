@@ -1125,6 +1125,24 @@ td small {
   font-size: 1.08rem;
 }
 
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.team-score {
+  display: inline-flex;
+  padding: 8px 13px;
+  color: white;
+  background: var(--green);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 850;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -1133,6 +1151,11 @@ td small {
 }
 
 .detail-primary {
+  display: grid;
+  gap: 22px;
+}
+
+.detail-sidebar {
   display: grid;
   gap: 22px;
 }
@@ -1215,6 +1238,11 @@ td small {
 
 .review-form .field + .field {
   margin-top: 18px;
+}
+
+.review-form label span {
+  color: var(--ink-soft);
+  font-weight: 550;
 }
 
 .button-full {
@@ -1322,6 +1350,64 @@ code {
   color: var(--ink-soft);
 }
 
+.evaluation-dimensions {
+  display: grid;
+  gap: 16px;
+  margin: 22px 0;
+  padding: 20px;
+  background: white;
+  border: 1px solid #dce6e0;
+}
+
+.dimension-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.dimension-heading strong {
+  font-size: 0.88rem;
+}
+
+.dimension-heading span {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+}
+
+.score-meter {
+  display: block;
+  width: 100%;
+  height: 7px;
+  margin-top: 7px;
+  overflow: hidden;
+  appearance: none;
+  background: #e2eae6;
+  border: 0;
+  border-radius: 999px;
+}
+
+.score-meter::-webkit-progress-bar {
+  background: #e2eae6;
+  border-radius: 999px;
+}
+
+.score-meter::-webkit-progress-value {
+  background: var(--green);
+  border-radius: 999px;
+}
+
+.score-meter::-moz-progress-bar {
+  background: var(--green);
+  border-radius: 999px;
+}
+
+.dimension-row p {
+  margin: 7px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
 .evaluation-columns {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1345,6 +1431,170 @@ code {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid #dce6e0;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #dce6e0;
+}
+
+.evidence-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 10px;
+  padding: 13px;
+  background: white;
+  border: 1px solid #dce6e0;
+}
+
+.evidence-item strong {
+  font-size: 0.86rem;
+}
+
+.evidence-item p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.evidence-status {
+  align-self: start;
+  padding: 3px 6px;
+  color: var(--ink-soft);
+  background: #edf1ef;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.evidence-meets {
+  color: #17613e;
+  background: #e4f6e9;
+}
+
+.evidence-partially_meets,
+.evidence-needs_verification {
+  color: var(--warning);
+  background: var(--warning-wash);
+}
+
+.evidence-not_found {
+  color: var(--danger);
+  background: var(--danger-wash);
+}
+
+.question-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.question-card {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 12px;
+  padding: 16px;
+  background: white;
+  border: 1px solid #dce6e0;
+}
+
+.question-number {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: white;
+  background: var(--green);
+  border-radius: 50%;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.question-card h4 {
+  margin: 2px 0 8px;
+  font-size: 0.94rem;
+}
+
+.question-card p {
+  margin: 5px 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.score-guide {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 0;
+}
+
+.score-guide div {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 8px;
+}
+
+.score-guide dt {
+  color: var(--green);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.score-guide dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+
+.analysis-limitations {
+  margin-top: 18px;
+  padding: 14px 16px;
+  color: var(--warning);
+  background: var(--warning-wash);
+}
+
+.analysis-limitations ul {
+  color: inherit;
+}
+
+.danger-zone {
+  border-color: #efc4b8;
+  border-top: 4px solid var(--danger);
+}
+
+.danger-zone .section-label {
+  color: var(--danger);
+}
+
+.danger-zone h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.danger-zone > p:not(.section-label) {
+  margin: 0 0 18px;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
+
+.button-danger {
+  color: white;
+  background: var(--danger);
+  border-radius: var(--radius-small);
+}
+
+.button-danger:hover,
+.button-danger:focus-visible {
+  background: #842415;
+}
+
+.score-empty {
+  color: #7d918b;
+  font-size: 0.82rem;
 }
 
 /* Login */
@@ -1638,6 +1888,20 @@ code {
 
   .evaluation-columns {
     grid-template-columns: 1fr;
+  }
+
+  .dimension-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .evidence-item {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-item p {
+    grid-column: auto;
   }
 
   .login-panel,

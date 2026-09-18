@@ -87,14 +87,10 @@ def main() -> int:
             "login_limit_per_15_minutes": 10,
         },
         "ai": {
-            "enabled": False,
-            "provider": "openai_compatible",
-            "base_url": "https://api.openai.com/v1",
-            "endpoint_path": "/chat/completions",
-            "api_key_env": "BITE_HUNT_AI_API_KEY",
-            "model": "",
-            "timeout_seconds": 60,
-            "max_resume_characters": 30000,
+            "enabled": True,
+            "config_path": str(args.output.parent / "deepseek.json"),
+            "timeout_seconds": 90,
+            "max_resume_characters": 50000,
         },
     }
 

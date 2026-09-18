@@ -33,6 +33,22 @@
     errorSummary.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  const deleteForm = document.querySelector("[data-delete-form]");
+  if (deleteForm) {
+    deleteForm.addEventListener("submit", (event) => {
+      if (!window.confirm("Permanently delete this application, its AI analyses, and resume?")) {
+        event.preventDefault();
+        return;
+      }
+      const button = deleteForm.querySelector("button[type='submit']");
+      if (button) {
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        button.textContent = "Deleting…";
+      }
+    });
+  }
+
   const modelContext = document.modelContext;
   if (modelContext?.registerTool) {
     const controller = new AbortController();

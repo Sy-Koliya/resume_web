@@ -1,0 +1,8 @@
+{
+  "provider": "deepseek",
+  "base_url": "https://api.deepseek.com",
+  "endpoint_path": "/chat/completions",
+  "api_key": "",
+  "model": "deepseek-v4-pro",
+  "max_output_tokens": 6000
+}

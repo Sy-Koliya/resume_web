@@ -12,7 +12,13 @@ check_command() {
   fi
 }
 
+check_json() {
+  python3 -m json.tool "$1" >/dev/null
+}
+
 check_command test -r /etc/bite-hunt/config.json
+check_command test -r /etc/bite-hunt/deepseek.json
+check_command check_json /etc/bite-hunt/deepseek.json
 check_command test -x /opt/bite-hunt-careers/venv/bin/uvicorn
 check_command systemctl is-active --quiet bite-hunt-careers.service
 check_command systemctl is-active --quiet nginx

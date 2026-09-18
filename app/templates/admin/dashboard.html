@@ -47,13 +47,14 @@
     {% if applications %}
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Role</th><th>Received</th><th>Status</th><th><span class="sr-only">Open</span></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Role</th><th>Received</th><th>Team score</th><th>Status</th><th><span class="sr-only">Open</span></th></tr></thead>
         <tbody>
           {% for application in applications %}
           <tr>
             <td><strong>{{ application.full_name }}</strong><span>{{ application.email }}</span><small>{{ application.reference_code }}</small></td>
             <td>{{ application.position }}</td>
             <td>{{ application.created_at|display_time }}</td>
+            <td>{% if application.review_score is not none %}<strong>{{ application.review_score }}/100</strong>{% else %}<span class="score-empty">Not scored</span>{% endif %}</td>
             <td><span class="status status-{{ application.status }}">{{ status_labels[application.status] }}</span></td>
             <td><a class="row-link" href="/admin/applications/{{ application.id }}" aria-label="Open application from {{ application.full_name }}">Open &rarr;</a></td>
           </tr>

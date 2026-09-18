@@ -25,6 +25,7 @@ source_root="$(cd -- "${script_dir}/.." && pwd)"
 install_root="/opt/bite-hunt-careers"
 config_root="/etc/bite-hunt"
 config_file="${config_root}/config.json"
+ai_config_file="${config_root}/deepseek.json"
 env_file="${config_root}/bite-hunt.env"
 data_root="/var/lib/bite-hunt"
 service_name="bite-hunt-careers.service"
@@ -38,6 +39,7 @@ fi
 
 admin_username="${BITEHUNT_ADMIN_USERNAME:-}"
 admin_password="${BITEHUNT_ADMIN_PASSWORD:-}"
+deepseek_api_key="${BITEHUNT_DEEPSEEK_API_KEY:-}"
 if [[ ! -f "${config_file}" || "${BITEHUNT_RECONFIGURE:-0}" == "1" ]]; then
   if [[ -z "${admin_username}" ]]; then
     if [[ -t 0 ]]; then
@@ -64,6 +66,13 @@ if [[ ! -f "${config_file}" || "${BITEHUNT_RECONFIGURE:-0}" == "1" ]]; then
   if (( ${#admin_password} < 12 )); then
     printf 'Administrator password must contain at least 12 characters.\n' >&2
     exit 1
+  fi
+fi
+
+if [[ ! -f "${ai_config_file}" || "${BITEHUNT_RECONFIGURE_AI:-0}" == "1" ]]; then
+  if [[ -z "${deepseek_api_key}" && -t 0 ]]; then
+    read -r -s -p 'DeepSeek API key (leave blank to configure later): ' deepseek_api_key
+    printf '\n'
   fi
 fi
 
@@ -116,6 +125,20 @@ if [[ ! -f "${config_file}" || "${BITEHUNT_RECONFIGURE:-0}" == "1" ]]; then
 fi
 unset admin_password
 
+if [[ ! -f "${ai_config_file}" || "${BITEHUNT_RECONFIGURE_AI:-0}" == "1" ]]; then
+  if [[ -f "${ai_config_file}" ]]; then
+    install -o root -g bitehunt -m 0640 "${ai_config_file}" "${ai_config_file}.backup-${release_id}"
+  fi
+  printf '%s\n' "${deepseek_api_key}" | \
+    /usr/bin/python3 "${release_dir}/scripts/render_deepseek_config.py" \
+      --output "${ai_config_file}" \
+      --api-key-stdin \
+      --force
+  chown root:bitehunt "${ai_config_file}"
+  chmod 0640 "${ai_config_file}"
+fi
+unset deepseek_api_key
+
 if [[ ! -f "${env_file}" ]]; then
   install -o root -g bitehunt -m 0640 "${release_dir}/config/bite-hunt.env.example" "${env_file}"
 fi
@@ -165,4 +188,5 @@ printf '\nBite Hunt Careers is installed.\n'
 printf 'Public site: http://SERVER_IP/\n'
 printf 'Hiring desk: http://SERVER_IP/admin/login\n'
 printf 'Configuration: %s\n' "${config_file}"
+printf 'DeepSeek configuration: %s\n' "${ai_config_file}"
 printf 'Service logs: journalctl -u %s -f\n' "${service_name}"
