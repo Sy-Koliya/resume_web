@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Join Bite Hunt and help students choose better campus meals with trusted data, real reviews, and useful recommendations.">
+  <title>Bite Hunt - Careers</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/site.css">
+  <script src="/static/site.js" defer></script>
+</head>
+<body class="public-page">
+  <div class="top-stripe" aria-hidden="true"></div>
+  <header class="site-header shell">
+    <a class="brand" href="/" aria-label="Bite Hunt careers home">
+      <span class="brand-mark">B</span>
+      <span>Bite Hunt</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#about">Who we are</a>
+      <a href="#roles">Open roles</a>
+      <a class="nav-cta" href="#apply">Send your resume</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero shell" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Now hiring - campus dining &amp; AI</p>
+        <h1 id="hero-title"><span>Bite Hunt</span>What should I eat today?</h1>
+        <p class="hero-lede">We help students decide with campus cafeteria data, real student reviews, and AI-powered recommendations.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#roles">Explore open roles</a>
+          <a class="text-link" href="#apply">Apply now <span aria-hidden="true">&rarr;</span></a>
+        </div>
+      </div>
+      <aside class="hero-note" aria-label="Bite Hunt promise">
+        <p class="hero-note-title">Real reviews.<br>Smart recommendations.</p>
+        <p>Build a better way for students to choose their next meal.</p>
+        <div class="plate-stamp" aria-hidden="true">
+          <span>TRUST</span>
+          <span>DATA</span>
+          <span>TASTE</span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="about shell" id="about" aria-labelledby="about-title">
+      <div>
+        <p class="section-label">Who we are</p>
+        <h2 id="about-title">Food information students can trust.</h2>
+        <p>Bite Hunt is a campus dining platform. We gather cafeteria information, host open student reviews, and use search and personalization to recommend the right meal.</p>
+      </div>
+      <div>
+        <p class="section-label">Mission</p>
+        <h2>Make “what should I eat?” easy.</h2>
+        <p>Reviews stay real and reliable - never shaped by discounts.</p>
+      </div>
+    </section>
+
+    <section class="values shell" aria-label="Why work at Bite Hunt">
+      <article>
+        <h3>Daily impact</h3>
+        <p>Your work improves a decision students make every day.</p>
+      </article>
+      <article>
+        <h3>Trust-first</h3>
+        <p>Protect authentic reviews and the people relying on them.</p>
+      </article>
+      <article>
+        <h3>AI that ships</h3>
+        <p>Work on search, ranking, recommendations, and LLMs.</p>
+      </article>
+      <article>
+        <h3>Real ownership</h3>
+        <p>Small team, fast feedback, meaningful responsibility.</p>
+      </article>
+    </section>
+
+    <section class="roles-section shell" id="roles" aria-labelledby="roles-title">
+      <div class="section-heading-row">
+        <div>
+          <p class="section-label">Open roles</p>
+          <h2 id="roles-title">Help students decide, one meal at a time.</h2>
+        </div>
+        <p>Two ways to make campus food easier to navigate.</p>
+      </div>
+      <div class="role-grid">
+        {% for title, role in roles.items() %}
+        <article class="role-card role-card-{{ role.accent }}">
+          <p class="role-number">Role {{ role.number }}</p>
+          <h3>{{ title }}</h3>
+          <div class="role-meta" aria-label="Role details">
+            <span>{{ role.type }}</span>
+            <span>{{ role.compensation }}</span>
+            <span>{{ role.location }}</span>
+          </div>
+          <h4>What you'll do</h4>
+          <ul>
+            {% for task in role.tasks %}<li>{{ task }}</li>{% endfor %}
+          </ul>
+          <div class="role-skills">
+            <h4>You bring</h4>
+            <p>{{ role.skills }}</p>
+          </div>
+          <a class="role-link" href="#apply" data-role-choice="{{ title }}">Apply for this role <span aria-hidden="true">&rarr;</span></a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="application-section" id="apply" aria-labelledby="apply-title">
+      <div class="shell application-grid">
+        <div class="application-intro">
+          <p class="section-label section-label-light">Join us</p>
+          <h2 id="apply-title">Ready to make every meal easier?</h2>
+          <p>Choose a role, tell us how to reach you, and attach your resume. We review every application from this dashboard - no email chain required.</p>
+          <div class="application-facts">
+            <p><strong>Accepted files</strong><br>PDF, DOC, or DOCX</p>
+            <p><strong>Maximum size</strong><br>{{ settings.storage.max_upload_mb }} MB</p>
+            <p><strong>What happens next</strong><br>We will contact shortlisted candidates by email.</p>
+          </div>
+        </div>
+
+        <div class="application-form-card">
+          {% if errors %}
+          <div class="form-errors" role="alert" tabindex="-1" data-error-summary>
+            <h3>Please check your application</h3>
+            <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+          <form action="/apply" method="post" enctype="multipart/form-data" data-application-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="honeypot" aria-hidden="true">
+              <label for="website">Website</label>
+              <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+            </div>
+            <div class="form-grid">
+              <div class="field field-wide">
+                <label for="position">Role</label>
+                <select id="position" name="position" required>
+                  <option value="">Choose a role</option>
+                  {% for title in roles %}
+                  <option value="{{ title }}" {% if form.position == title %}selected{% endif %}>{{ title }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="full_name">Full name</label>
+                <input id="full_name" name="full_name" type="text" maxlength="100" autocomplete="name" value="{{ form.full_name or '' }}" required>
+              </div>
+              <div class="field">
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" maxlength="254" autocomplete="email" value="{{ form.email or '' }}" required>
+              </div>
+              <div class="field field-wide">
+                <label for="phone">Phone <span>Optional</span></label>
+                <input id="phone" name="phone" type="tel" maxlength="40" autocomplete="tel" value="{{ form.phone or '' }}">
+              </div>
+              <div class="field field-wide">
+                <label for="cover_note">A short note <span>Optional</span></label>
+                <textarea id="cover_note" name="cover_note" maxlength="2000" rows="5" placeholder="What draws you to this role?">{{ form.cover_note or '' }}</textarea>
+              </div>
+              <div class="field field-wide">
+                <label for="resume">Resume</label>
+                <label class="file-picker" for="resume">
+                  <span class="file-picker-action">Choose file</span>
+                  <span data-file-name>No file selected</span>
+                </label>
+                <input class="file-input" id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+                <p class="field-help">PDF, DOC, or DOCX. Up to {{ settings.storage.max_upload_mb }} MB.</p>
+              </div>
+              <div class="field field-wide consent-field">
+                <input id="consent" name="consent" type="checkbox" value="yes" required>
+                <label for="consent">I agree that Bite Hunt may store and review my information for this recruitment process.</label>
+              </div>
+            </div>
+            <button class="button button-submit" type="submit" data-submit-button>
+              <span data-submit-label>Send application</span>
+              <span aria-hidden="true">&rarr;</span>
+            </button>
+            <p class="privacy-note">Your resume is stored privately and is available only through the administrator area. It is never sent to an AI service unless an administrator explicitly requests an evaluation.</p>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer shell">
+    <p><strong>Bite Hunt</strong> - campus dining today, more schools tomorrow.</p>
+    <a href="/admin/login">Team login</a>
+  </footer>
+</body>
+</html>
+

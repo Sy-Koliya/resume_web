@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ title }} - Bite Hunt</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body class="error-page">
+  <main class="error-card">
+    <a class="brand" href="/"><span class="brand-mark">B</span><span>Bite Hunt</span></a>
+    <p class="error-code">{{ status_code }}</p>
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <a class="button button-primary" href="/">Return home</a>
+  </main>
+</body>
+</html>
+

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Admin{% endblock %} - Bite Hunt</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/site.css">
+  <script src="/static/site.js" defer></script>
+</head>
+<body class="admin-page">
+  <header class="admin-header">
+    <a class="brand brand-light" href="/admin"><span class="brand-mark">B</span><span>Bite Hunt</span><small>Hiring desk</small></a>
+    <div class="admin-account">
+      <span>{{ admin_user }}</span>
+      <form action="/admin/logout" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="link-button">Sign out</button>
+      </form>
+    </div>
+  </header>
+  <main class="admin-main">
+    {% if flash %}<div class="flash flash-{{ flash.kind }}" role="status">{{ flash.message }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
+

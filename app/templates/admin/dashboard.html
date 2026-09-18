@@ -1,0 +1,77 @@
+{% extends "admin/base.html" %}
+{% block title %}Applications{% endblock %}
+{% block content %}
+  <div class="admin-title-row">
+    <div>
+      <p class="section-label">Recruitment pipeline</p>
+      <h1>Applications</h1>
+    </div>
+    <a class="button button-secondary" href="/" target="_blank" rel="noopener">View careers page</a>
+  </div>
+
+  <section class="stat-grid" aria-label="Application totals">
+    <article><span>Total</span><strong>{{ counts.total }}</strong></article>
+    <article><span>New</span><strong>{{ counts.new }}</strong></article>
+    <article><span>Reviewing</span><strong>{{ counts.reviewing }}</strong></article>
+    <article><span>Interview</span><strong>{{ counts.interview }}</strong></article>
+  </section>
+
+  <form class="filter-bar" method="get" action="/admin">
+    <div class="field filter-search">
+      <label for="q">Search</label>
+      <input id="q" name="q" type="search" value="{{ q }}" placeholder="Name, email, or reference">
+    </div>
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="">All statuses</option>
+        {% for value in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ status_labels[value] }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="position">Role</label>
+      <select id="position" name="position">
+        <option value="">All roles</option>
+        {% for title in roles %}<option value="{{ title }}" {% if selected_position == title %}selected{% endif %}>{{ title }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="button button-filter" type="submit">Filter</button>
+    {% if q or selected_status or selected_position %}<a class="clear-filter" href="/admin">Clear</a>{% endif %}
+  </form>
+
+  <section class="table-card" aria-labelledby="results-heading">
+    <div class="table-card-header">
+      <h2 id="results-heading">{{ total }} result{% if total != 1 %}s{% endif %}</h2>
+      <span>Newest first</span>
+    </div>
+    {% if applications %}
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Candidate</th><th>Role</th><th>Received</th><th>Status</th><th><span class="sr-only">Open</span></th></tr></thead>
+        <tbody>
+          {% for application in applications %}
+          <tr>
+            <td><strong>{{ application.full_name }}</strong><span>{{ application.email }}</span><small>{{ application.reference_code }}</small></td>
+            <td>{{ application.position }}</td>
+            <td>{{ application.created_at|display_time }}</td>
+            <td><span class="status status-{{ application.status }}">{{ status_labels[application.status] }}</span></td>
+            <td><a class="row-link" href="/admin/applications/{{ application.id }}" aria-label="Open application from {{ application.full_name }}">Open &rarr;</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><h3>No applications found</h3><p>Try clearing the filters, or return after a candidate submits a resume.</p></div>
+    {% endif %}
+  </section>
+
+  {% if page_count > 1 %}
+  <nav class="pagination" aria-label="Application pages">
+    {% if page > 1 %}<a href="?page={{ page - 1 }}&amp;q={{ q|urlencode }}&amp;status={{ selected_status|urlencode }}&amp;position={{ selected_position|urlencode }}">&larr; Previous</a>{% endif %}
+    <span>Page {{ page }} of {{ page_count }}</span>
+    {% if page < page_count %}<a href="?page={{ page + 1 }}&amp;q={{ q|urlencode }}&amp;status={{ selected_status|urlencode }}&amp;position={{ selected_position|urlencode }}">Next &rarr;</a>{% endif %}
+  </nav>
+  {% endif %}
+{% endblock %}
+

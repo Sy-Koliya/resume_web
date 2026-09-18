@@ -1,0 +1,35 @@
+{
+  "app": {
+    "name": "Bite Hunt Careers",
+    "environment": "production",
+    "base_url": "http://localhost",
+    "session_secret": "CHANGE_ME_WITH_A_RANDOM_VALUE_OF_AT_LEAST_32_CHARACTERS",
+    "cookie_secure": false,
+    "trusted_hosts": ["*"]
+  },
+  "storage": {
+    "database_path": "/var/lib/bite-hunt/data/bite-hunt.db",
+    "resume_dir": "/var/lib/bite-hunt/uploads",
+    "max_upload_mb": 10,
+    "allowed_extensions": ["pdf", "doc", "docx"]
+  },
+  "admin": {
+    "username": "admin",
+    "password_hash": "CHANGE_ME_USING_SCRIPTS_RENDER_CONFIG"
+  },
+  "security": {
+    "application_limit_per_hour": 8,
+    "login_limit_per_15_minutes": 10
+  },
+  "ai": {
+    "enabled": false,
+    "provider": "openai_compatible",
+    "base_url": "https://api.openai.com/v1",
+    "endpoint_path": "/chat/completions",
+    "api_key_env": "BITE_HUNT_AI_API_KEY",
+    "model": "",
+    "timeout_seconds": 60,
+    "max_resume_characters": 30000
+  }
+}
+
