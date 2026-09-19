@@ -56,8 +56,31 @@ def main() -> int:
         raise SystemExit("Administrator username contains unsupported characters.")
 
     parsed = urlparse(args.base_url)
-    default_host = parsed.hostname or "*"
-    trusted_hosts = list(dict.fromkeys((args.trusted_hosts or [default_host]) + ["127.0.0.1", "localhost"]))
+    try:
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise SystemExit("Base URL contains an invalid port.") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise SystemExit("Base URL must be one HTTP(S) origin without credentials or a path.")
+    if parsed_port is not None and not 1 <= parsed_port <= 65535:
+        raise SystemExit("Base URL contains an invalid port.")
+
+    default_host = parsed.hostname
+    trusted_hosts = list(
+        dict.fromkeys(
+            (args.trusted_hosts or [])
+            + [default_host, "127.0.0.1", "localhost"]
+        )
+    )
     if any(not re.fullmatch(r"\*|[A-Za-z0-9_.:-]+", host) for host in trusted_hosts):
         raise SystemExit("A trusted host contains unsupported characters.")
 

@@ -31,6 +31,7 @@ data_root="/var/lib/bite-hunt"
 service_name="bite-hunt-careers.service"
 server_name="${BITEHUNT_SERVER_NAME:-_}"
 base_url="${BITEHUNT_BASE_URL:-http://localhost}"
+additional_trusted_hosts="${BITEHUNT_TRUSTED_HOSTS:-}"
 
 if [[ ! "${server_name}" =~ ^[_A-Za-z0-9.-]+$ ]]; then
   printf 'BITEHUNT_SERVER_NAME must be one hostname, IP address, or _.\n' >&2
@@ -80,7 +81,7 @@ printf 'Installing operating-system packages…\n'
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl nginx python3 python3-pip python3-venv sqlite3
+  ca-certificates curl nginx python3 python3-pip python3-venv sqlite3 util-linux
 
 if ! id -u bitehunt >/dev/null 2>&1; then
   useradd --system --user-group --home-dir "${data_root}" --shell /usr/sbin/nologin bitehunt
@@ -103,6 +104,30 @@ fi
 "${install_root}/venv/bin/python" -m pip install -r "${release_dir}/requirements.txt"
 "${install_root}/venv/bin/python" -m compileall -q "${release_dir}/app"
 
+# The installer runs with umask 027. Without explicitly assigning the service
+# group here, a root-created venv is 0750 root:root and the bitehunt service
+# cannot execute Uvicorn or import its packages.
+chown -R root:bitehunt "${install_root}/venv"
+chmod -R u=rwX,g=rX,o= "${install_root}/venv"
+
+# Archives can preserve restrictive source permissions. Production code is
+# immutable and root-owned, but must remain readable by the service account.
+chown -R root:root "${release_dir}"
+find "${release_dir}" -type d -exec chmod 0755 {} +
+find "${release_dir}" -type f -exec chmod 0644 {} +
+chmod 0755 "${release_dir}"/scripts/*.sh "${release_dir}"/scripts/*.py
+
+if ! runuser -u bitehunt -- \
+  "${install_root}/venv/bin/python" \
+  -c 'import fastapi, jinja2, uvicorn' >/dev/null; then
+  printf 'The bitehunt service account cannot read the Python environment.\n' >&2
+  exit 1
+fi
+if ! runuser -u bitehunt -- test -r "${release_dir}/app/templates/public/index.html"; then
+  printf 'The bitehunt service account cannot read the application templates.\n' >&2
+  exit 1
+fi
+
 if [[ ! -f "${config_file}" || "${BITEHUNT_RECONFIGURE:-0}" == "1" ]]; then
   if [[ -f "${config_file}" ]]; then
     install -o root -g bitehunt -m 0640 "${config_file}" "${config_file}.backup-${release_id}"
@@ -111,13 +136,23 @@ if [[ ! -f "${config_file}" || "${BITEHUNT_RECONFIGURE:-0}" == "1" ]]; then
   if [[ "${server_name}" != "_" ]]; then
     trusted_host="${server_name}"
   fi
+  trusted_host_args=(--trusted-host "${trusted_host}")
+  if [[ -n "${additional_trusted_hosts}" ]]; then
+    IFS=',' read -r -a requested_trusted_hosts <<< "${additional_trusted_hosts}"
+    for requested_host in "${requested_trusted_hosts[@]}"; do
+      requested_host="${requested_host//[[:space:]]/}"
+      if [[ -n "${requested_host}" ]]; then
+        trusted_host_args+=(--trusted-host "${requested_host}")
+      fi
+    done
+  fi
   printf '%s\n' "${admin_password}" | \
     /usr/bin/python3 "${release_dir}/scripts/render_config.py" \
       --output "${config_file}" \
       --data-dir "${data_root}" \
       --admin-username "${admin_username}" \
       --base-url "${base_url}" \
-      --trusted-host "${trusted_host}" \
+      "${trusted_host_args[@]}" \
       --password-stdin \
       --force
   chown root:bitehunt "${config_file}"
@@ -180,13 +215,46 @@ for _attempt in {1..20}; do
   sleep 1
 done
 if [[ "${healthy}" -ne 1 ]]; then
-  printf 'The service did not become healthy. Inspect: journalctl -u %s -n 100 --no-pager\n' "${service_name}" >&2
+  printf 'The service did not become healthy. Recent service details follow.\n' >&2
+  systemctl status "${service_name}" --no-pager --full >&2 || true
+  journalctl -u "${service_name}" -n 100 --no-pager >&2 || true
   exit 1
 fi
 
-printf '\nBite Hunt Careers is installed.\n'
-printf 'Public site: http://SERVER_IP/\n'
-printf 'Hiring desk: http://SERVER_IP/admin/login\n'
+probe_host="${server_name}"
+if [[ "${probe_host}" == "_" ]]; then
+  probe_host="127.0.0.1"
+fi
+
+if ! bash "${release_dir}/scripts/smoke_test.sh" \
+  "http://127.0.0.1:8000" "127.0.0.1" "Uvicorn backend"; then
+  printf 'The backend is healthy but could not render the complete page.\n' >&2
+  journalctl -u "${service_name}" -n 100 --no-pager >&2 || true
+  exit 1
+fi
+
+if ! bash "${release_dir}/scripts/smoke_test.sh" \
+  "http://127.0.0.1" "${probe_host}" "Nginx public route"; then
+  printf 'Nginx could not serve the rendered page or its static assets.\n' >&2
+  nginx -t >&2 || true
+  journalctl -u nginx -n 100 --no-pager >&2 || true
+  journalctl -u "${service_name}" -n 100 --no-pager >&2 || true
+  exit 1
+fi
+
+public_url="${base_url%/}"
+if [[ "${public_url}" == "http://localhost" ]]; then
+  if [[ "${server_name}" != "_" ]]; then
+    public_url="http://${server_name}"
+  else
+    primary_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    public_url="http://${primary_ip:-SERVER_IP}"
+  fi
+fi
+
+printf '\nBite Hunt Careers is installed and the rendered page passed smoke tests.\n'
+printf 'Public site: %s/\n' "${public_url}"
+printf 'Hiring desk: %s/admin/login\n' "${public_url}"
 printf 'Configuration: %s\n' "${config_file}"
 printf 'DeepSeek configuration: %s\n' "${ai_config_file}"
 printf 'Service logs: journalctl -u %s -f\n' "${service_name}"

@@ -124,6 +124,13 @@ def test_home_and_health(client: TestClient):
     assert home.status_code == 200
     assert "What should I eat today?" in home.text
     assert "Send application" in home.text
+    stylesheet = client.get("/static/site.css")
+    assert stylesheet.status_code == 200
+    assert stylesheet.headers["content-type"].startswith("text/css")
+    assert ":root {" in stylesheet.text
+    javascript = client.get("/static/site.js")
+    assert javascript.status_code == 200
+    assert "data-application-form" in javascript.text
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json()["status"] == "ok"

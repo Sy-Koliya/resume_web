@@ -50,7 +50,8 @@ The installer asks for an administrator username, a password of at least 12 char
 4. creates private data directories below `/var/lib/bite-hunt`;
 5. writes `/etc/bite-hunt/config.json`, `/etc/bite-hunt/deepseek.json`, and the optional service environment file;
 6. enables the application and Nginx services; and
-7. checks the local health endpoint.
+7. verifies that the unprivileged service account can execute the Python environment and read the templates; and
+8. smoke-tests the health endpoint, rendered homepage, CSS, and JavaScript through both Uvicorn and Nginx.
 
 Open these pages after installation:
 
@@ -66,10 +67,11 @@ sudo env \
   BITEHUNT_DEEPSEEK_API_KEY='replace-with-your-deepseek-key' \
   BITEHUNT_SERVER_NAME=example.com \
   BITEHUNT_BASE_URL=http://example.com \
+  BITEHUNT_TRUSTED_HOSTS=203.0.113.10 \
   bash scripts/install_ubuntu.sh
 ```
 
-`BITEHUNT_SERVER_NAME` accepts one hostname, IP address, or `_`. Re-running the installer installs a new code release and preserves the current configuration, DeepSeek key, database, and resumes. Set `BITEHUNT_RECONFIGURE=1` only when you intentionally want a new main configuration and administrator password. Set `BITEHUNT_RECONFIGURE_AI=1` only when you intentionally want to replace the DeepSeek configuration. Existing files are backed up first.
+`BITEHUNT_SERVER_NAME` accepts one hostname, IP address, or `_`. `BITEHUNT_TRUSTED_HOSTS` is an optional comma-separated list of additional domain names or IP addresses that may be used to open the site. The host from `BITEHUNT_BASE_URL`, localhost, and `127.0.0.1` are always included. Re-running the installer installs a new code release and preserves the current configuration, DeepSeek key, database, and resumes. Set `BITEHUNT_RECONFIGURE=1` only when you intentionally want a new main configuration and administrator password. Set `BITEHUNT_RECONFIGURE_AI=1` only when you intentionally want to replace the DeepSeek configuration. Existing files are backed up first.
 
 ## Configuration
 
@@ -169,6 +171,8 @@ Run the included deployment checks:
 ```bash
 sudo bash /opt/bite-hunt-careers/current/scripts/doctor.sh
 ```
+
+The doctor runs its Python import check as the actual `bitehunt` service user and verifies the complete page plus static assets through Uvicorn and Nginx. If Nginx shows `502 Bad Gateway`, reinstall this release and run the doctor; releases before 1.1.2 could create a root-only virtual environment when installed with the secure `027` umask.
 
 Back up both structured data and resume files. A consistent small-site backup can be taken while the service is stopped:
 
